@@ -1,0 +1,152 @@
+#cloud-config
+##############################################################################
+# Cloud-init for the Scaler scheduler compute instance.
+#
+# Installs Python 3.11 and build dependencies. The scaler package itself
+# is deployed separately via scripts/deploy-scheduler.sh (SCP + pip install).
+#
+# Template variables (rendered by Terraform templatefile()):
+#   ${scheduler_port}           - TCP port for the scheduler
+#   ${scheduler_workers}        - Number of workers per container instance
+#   ${container_image}          - OCIR image URI for worker containers
+#   ${compartment_id}           - OCI Compartment OCID
+#   ${availability_domain}      - Availability Domain name
+#   ${subnet_id}                - Subnet OCID for worker container instances
+#   ${instance_shape}           - Container Instance shape
+#   ${instance_ocpus}           - OCPUs per container instance
+#   ${instance_memory_gb}       - Memory GB per container instance
+#   ${os_namespace}             - Object Storage namespace
+#   ${os_bucket}                - Object Storage bucket name
+#   ${os_prefix}                - Object Storage key prefix
+#   ${scaler_package}           - pip-installable scaler package spec
+#   ${oci_region}               - OCI region identifier
+##############################################################################
+
+package_update: true
+
+packages:
+  - git
+  - gcc
+  - gcc-c++
+  - make
+
+write_files:
+  - path: /opt/scaler/start-scheduler.sh
+    permissions: "0755"
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+
+      cd /opt/scaler
+
+      if [[ ! -d venv ]]; then
+          echo "ERROR: virtualenv not found. Run deploy-scheduler.sh first." >&2
+          exit 1
+      fi
+      source venv/bin/activate
+
+      # Start the scheduler with vanilla scaling (auto-provisions workers via worker manager)
+      exec scaler_scheduler \
+          tcp://0.0.0.0:${scheduler_port} \
+          --policy-content "allocate=even_load; scaling=vanilla" \
+          --logging-level INFO
+
+  - path: /opt/scaler/start-worker-manager.sh
+    permissions: "0755"
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+
+      cd /opt/scaler
+
+      if [[ ! -d venv ]]; then
+          echo "ERROR: virtualenv not found. Run deploy-scheduler.sh first." >&2
+          exit 1
+      fi
+      source venv/bin/activate
+
+      # Start the OCI Raw worker manager with instance principal auth
+      exec scaler_worker_manager_oci_raw_container_instance \
+          tcp://127.0.0.1:${scheduler_port} \
+          --oci-auth-type instance_principal \
+          --oci-region ${oci_region} \
+          --compartment-id ${compartment_id} \
+          --availability-domain "${availability_domain}" \
+          --subnet-id ${subnet_id} \
+          --container-image ${container_image} \
+          --instance-shape ${instance_shape} \
+          --instance-ocpus ${instance_ocpus} \
+          --instance-memory-gb ${instance_memory_gb} \
+          --logging-level INFO
+
+  - path: /etc/systemd/system/scaler-scheduler.service
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Scaler Scheduler
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=simple
+      User=opc
+      WorkingDirectory=/opt/scaler
+      ExecStart=/opt/scaler/start-scheduler.sh
+      Restart=on-failure
+      RestartSec=30
+      StandardOutput=journal
+      StandardError=journal
+
+      [Install]
+      WantedBy=multi-user.target
+
+  - path: /etc/systemd/system/scaler-worker-manager.service
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Scaler OCI Worker Manager
+      After=scaler-scheduler.service
+      Wants=scaler-scheduler.service
+
+      [Service]
+      Type=simple
+      User=opc
+      WorkingDirectory=/opt/scaler
+      ExecStart=/opt/scaler/start-worker-manager.sh
+      Restart=on-failure
+      RestartSec=30
+      StandardOutput=journal
+      StandardError=journal
+
+      [Install]
+      WantedBy=multi-user.target
+
+runcmd:
+  # Install Python 3.11 from Oracle Linux AppStream
+  - dnf module install -y python311
+  - dnf install -y python3.11-pip python3.11-devel
+  # Install GCC 14 for C++20 support (std::format) and cmake
+  - dnf install -y gcc-toolset-14-gcc gcc-toolset-14-gcc-c++ cmake
+  # Build C++ dependencies from source (not available in OL8 repos)
+  - |
+    source /opt/rh/gcc-toolset-14/enable
+    # Cap'n Proto
+    cd /tmp && curl -sL https://capnproto.org/capnproto-c++-1.1.0.tar.gz | tar xz
+    cd capnproto-c++-1.1.0 && cmake -B build -DCMAKE_INSTALL_PREFIX=/usr/local -DBUILD_TESTING=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+    cmake --build build -j$(nproc) && cmake --install build
+    # ZeroMQ
+    cd /tmp && curl -sL https://github.com/zeromq/libzmq/releases/download/v4.3.5/zeromq-4.3.5.tar.gz | tar xz
+    cd zeromq-4.3.5 && cmake -B build -DCMAKE_INSTALL_PREFIX=/usr/local -DBUILD_TESTING=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+    cmake --build build -j$(nproc) && cmake --install build
+    # libuv
+    cd /tmp && curl -sL https://github.com/libuv/libuv/archive/refs/tags/v1.48.0.tar.gz | tar xz
+    cd libuv-1.48.0 && cmake -B build -DCMAKE_INSTALL_PREFIX=/usr/local -DBUILD_TESTING=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+    cmake --build build -j$(nproc) && cmake --install build
+    ldconfig
+  # Set up scaler directory
+  - mkdir -p /opt/scaler
+  - chown opc:opc /opt/scaler
+  # Enable services but don't start — deploy-scheduler.sh will start them
+  - systemctl daemon-reload
+  - systemctl enable scaler-scheduler
+  - systemctl enable scaler-worker-manager

@@ -1,0 +1,63 @@
+# ==========================================================================
+# Scaler OCI Terraform — Example Variable Values
+#
+# Copy this file to terraform.tfvars and fill in your OCI details:
+#   cp terraform.tfvars.example terraform.tfvars
+# ==========================================================================
+
+# --- OCI Provider Authentication -------------------------------------------
+# These come from your ~/.oci/config or an API key created in the OCI Console.
+tenancy_ocid     = "ocid1.tenancy.oc1..aaaaaaaaexample"
+user_ocid        = "ocid1.user.oc1..aaaaaaaaexample"
+fingerprint      = "aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99"
+private_key_path = "~/.oci/oci_api_key.pem"
+
+# --- Region & Compartment -------------------------------------------------
+region           = "us-ashburn-1"
+compartment_ocid = "ocid1.compartment.oc1..aaaaaaaaexample"
+
+# --- Naming ----------------------------------------------------------------
+resource_prefix = "scaler"
+
+# --- Networking ------------------------------------------------------------
+vcn_cidr              = "10.0.0.0/16"
+subnet_cidr           = "10.0.1.0/24"
+availability_domain   = ""           # leave empty to auto-select first AD
+use_public_subnet     = false        # recommended: private subnet + NAT
+create_nat_gateway    = true
+
+# --- Scheduler connectivity -----------------------------------------------
+scheduler_port = 2345
+scheduler_cidr = "0.0.0.0/0"        # tighten this to your scheduler's CIDR
+
+# --- Container Instance sizing ---------------------------------------------
+instance_shape     = "CI.Standard.E4.Flex"
+instance_ocpus     = 4.0
+instance_memory_gb = 30.0
+
+# --- Object Storage --------------------------------------------------------
+object_storage_prefix = "scaler-tasks"
+bucket_lifecycle_days = 1
+
+# --- Container Registry (OCIR) --------------------------------------------
+create_ocir_repository    = true
+ocir_repository_is_public = false
+
+# --- Scheduler Compute Instance (optional) --------------------------------
+# Set to true to provision a VM that runs scaler_scheduler automatically.
+create_scheduler_instance        = false
+scheduler_instance_shape         = "VM.Standard.E4.Flex"
+scheduler_instance_ocpus         = 1.0
+scheduler_instance_memory_gb     = 8.0
+scheduler_ssh_public_key         = ""   # paste your ~/.ssh/id_rsa.pub here
+scheduler_workers_per_instance   = 4
+scaler_pip_package               = "scaler"  # or "git+https://github.com/..."
+
+# --- Bastion Host (optional) -----------------------------------------------
+# Public-facing jump host for SSH access to private resources.
+create_bastion        = false
+bastion_shape         = "VM.Standard.E4.Flex"
+bastion_ocpus         = 1.0
+bastion_memory_gb     = 4.0
+bastion_subnet_cidr   = "10.0.2.0/24"
+bastion_ssh_cidr      = "0.0.0.0/0"    # tighten to your IP/32 for security
