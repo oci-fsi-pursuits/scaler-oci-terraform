@@ -79,20 +79,22 @@ make apply   # or: terraform apply
 ### 3. Build and Push the Worker Container Image
 
 ```bash
-# Log in to OCIR (replace <username> and <auth_token>)
-docker login $(terraform output -raw ocir_login_server) \
-  -u $(terraform output -raw object_storage_namespace)/<username> \
-  -p <auth_token>
+# Log in to OCIR (interactive — prompts for username and password)
+make login
+# Username: your OCI username (e.g. oraclecloud/user@example.com)
+# Password: an OCI auth token (generate at: OCI Console > Identity > Users > Auth Tokens)
 
-# Build and push
+# Build and push the worker image (defaults to HPC adapter)
 make build SCALER_SRC=../opengris-scaler-oci
 
-# Or directly:
-./scripts/build-and-push.sh \
-  --scaler-src ../opengris-scaler-oci \
-  --ocir-uri "$(terraform output -raw ocir_image_uri)" \
-  --adapter hpc
+# Or build both HPC and Raw adapter images
+make build SCALER_SRC=../opengris-scaler-oci ADAPTER=both
 ```
+
+The build script uses Dockerfiles from the scaler source tree to create
+lightweight worker images (Python 3.12-slim + OCI SDK) and pushes them to the
+OCIR repository Terraform created. At runtime, the worker manager on the
+scheduler creates OCI Container Instances that pull these images.
 
 ### 4. Deploy the Scheduler (Optional)
 
@@ -249,9 +251,10 @@ make init       # terraform init
 make plan       # terraform plan
 make apply      # terraform apply
 make destroy    # terraform destroy
+make login      # Log in to OCIR (prompts for username and auth token)
+make build      # Build and push worker images (SCALER_SRC=<path> ADAPTER=hpc|raw|both)
+make deploy     # Deploy scaler source to scheduler (SCALER_SRC=<path>)
 make ssh        # SSH to scheduler via bastion
-make deploy     # Deploy scaler source (SCALER_SRC=<path>)
-make build      # Build and push worker images (SCALER_SRC=<path>)
 make validate   # Validate Terraform config
 make fmt        # Format Terraform files
 ```
