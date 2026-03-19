@@ -130,6 +130,11 @@ output "log_group_id" {
 # Scheduler Compute Instance
 # ---------------------------------------------------------------------------
 
+output "ssh_private_key_path" {
+  description = "Configured SSH private key path for helper scripts"
+  value       = var.ssh_private_key_path
+}
+
 output "scheduler_instance_id" {
   description = "Scheduler compute instance OCID"
   value       = var.create_scheduler_instance ? oci_core_instance.scheduler[0].id : null
@@ -166,14 +171,14 @@ output "bastion_public_ip" {
 
 output "bastion_ssh_command" {
   description = "SSH command to connect to the bastion"
-  value       = var.create_bastion ? "ssh -i ~/.ssh/scaler_scheduler opc@${oci_core_instance.bastion[0].public_ip}" : null
+  value       = var.create_bastion ? "ssh -i ${var.ssh_private_key_path} opc@${oci_core_instance.bastion[0].public_ip}" : null
 }
 
 output "bastion_tunnel_to_scheduler" {
   description = "SSH tunnel command to forward the scheduler port through the bastion"
   value = var.create_bastion && var.create_scheduler_instance ? join(" ", [
-    "ssh -i ~/.ssh/scaler_scheduler",
-    "-o 'ProxyCommand=ssh -i ~/.ssh/scaler_scheduler -W %h:%p opc@${oci_core_instance.bastion[0].public_ip}'",
+    "ssh -i ${var.ssh_private_key_path}",
+    "-o 'ProxyCommand=ssh -i ${var.ssh_private_key_path} -W %h:%p opc@${oci_core_instance.bastion[0].public_ip}'",
     "-L ${var.scheduler_port}:localhost:${var.scheduler_port}",
     "opc@${oci_core_instance.scheduler[0].private_ip} -N"
   ]) : null
@@ -182,8 +187,8 @@ output "bastion_tunnel_to_scheduler" {
 output "bastion_ssh_to_scheduler" {
   description = "SSH to scheduler through bastion"
   value = var.create_bastion && var.create_scheduler_instance ? join(" ", [
-    "ssh -i ~/.ssh/scaler_scheduler",
-    "-o 'ProxyCommand=ssh -i ~/.ssh/scaler_scheduler -W %h:%p opc@${oci_core_instance.bastion[0].public_ip}'",
+    "ssh -i ${var.ssh_private_key_path}",
+    "-o 'ProxyCommand=ssh -i ${var.ssh_private_key_path} -W %h:%p opc@${oci_core_instance.bastion[0].public_ip}'",
     "opc@${oci_core_instance.scheduler[0].private_ip}"
   ]) : null
 }
@@ -204,6 +209,7 @@ output "deploy_scheduler_command" {
     "--scaler-src <path-to-scaler>",
     "--bastion-ip ${oci_core_instance.bastion[0].public_ip}",
     "--scheduler-ip ${oci_core_instance.scheduler[0].private_ip}",
+    "--ssh-key ${var.ssh_private_key_path}",
   ]) : null
 }
 
@@ -217,21 +223,21 @@ output "deploy_scheduler_command" {
 output "scaler_config" {
   description = "JSON config compatible with OCIProvisioner.save_config() and the test harness"
   value = {
-    oci_region                = var.region
-    tenancy_id                = var.tenancy_ocid
-    compartment_id            = var.compartment_ocid
-    prefix                    = local.prefix
-    object_storage_namespace  = local.namespace
-    object_storage_bucket     = oci_objectstorage_bucket.this.name
-    object_storage_prefix     = var.object_storage_prefix
-    container_image           = "${local.ocir_image_uri}:latest"
-    availability_domain       = local.availability_domain
-    subnet_id                 = oci_core_subnet.this.id
-    instance_shape            = var.instance_shape
-    instance_ocpus            = var.instance_ocpus
-    instance_memory_gb        = var.instance_memory_gb
-    dynamic_group_name        = oci_identity_dynamic_group.container_instances.name
-    iam_policy_name           = oci_identity_policy.object_storage_access.name
-    scheduler_address         = var.create_scheduler_instance ? "tcp://${oci_core_instance.scheduler[0].private_ip}:${var.scheduler_port}" : null
+    oci_region               = var.region
+    tenancy_id               = var.tenancy_ocid
+    compartment_id           = var.compartment_ocid
+    prefix                   = local.prefix
+    object_storage_namespace = local.namespace
+    object_storage_bucket    = oci_objectstorage_bucket.this.name
+    object_storage_prefix    = var.object_storage_prefix
+    container_image          = "${local.ocir_image_uri}:latest"
+    availability_domain      = local.availability_domain
+    subnet_id                = oci_core_subnet.this.id
+    instance_shape           = var.instance_shape
+    instance_ocpus           = var.instance_ocpus
+    instance_memory_gb       = var.instance_memory_gb
+    dynamic_group_name       = oci_identity_dynamic_group.container_instances.name
+    iam_policy_name          = oci_identity_policy.object_storage_access.name
+    scheduler_address        = var.create_scheduler_instance ? "tcp://${oci_core_instance.scheduler[0].private_ip}:${var.scheduler_port}" : null
   }
 }

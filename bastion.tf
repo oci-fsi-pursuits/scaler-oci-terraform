@@ -140,7 +140,14 @@ resource "oci_core_instance" "bastion" {
   }
 
   metadata = {
-    ssh_authorized_keys = var.bastion_ssh_public_key != "" ? var.bastion_ssh_public_key : var.scheduler_ssh_public_key
+    ssh_authorized_keys = var.bastion_ssh_public_key != "" ? var.bastion_ssh_public_key : local.resolved_ssh_public_key
+  }
+
+  lifecycle {
+    precondition {
+      condition     = var.bastion_ssh_public_key != "" || local.resolved_ssh_public_key != ""
+      error_message = "An SSH public key is required. Set bastion_ssh_public_key, scheduler_ssh_public_key, or ssh_public_key_file."
+    }
   }
 
   freeform_tags = {

@@ -24,9 +24,9 @@ terraform {
 provider "oci" {
   region           = var.region
   tenancy_ocid     = var.tenancy_ocid
-  user_ocid        = var.user_ocid
-  fingerprint      = var.fingerprint
-  private_key_path = var.private_key_path
+  user_ocid        = var.user_ocid != "" ? var.user_ocid : null
+  fingerprint      = var.fingerprint != "" ? var.fingerprint : null
+  private_key_path = var.private_key_path != "" ? var.private_key_path : null
 }
 
 # ---------------------------------------------------------------------------
@@ -40,9 +40,9 @@ provider "oci" {
   alias            = "home"
   region           = local.home_region
   tenancy_ocid     = var.tenancy_ocid
-  user_ocid        = var.user_ocid
-  fingerprint      = var.fingerprint
-  private_key_path = var.private_key_path
+  user_ocid        = var.user_ocid != "" ? var.user_ocid : null
+  fingerprint      = var.fingerprint != "" ? var.fingerprint : null
+  private_key_path = var.private_key_path != "" ? var.private_key_path : null
 }
 
 # ---------------------------------------------------------------------------
@@ -77,4 +77,11 @@ locals {
   availability_domain = var.availability_domain != "" ? var.availability_domain : data.oci_identity_availability_domains.this.availability_domains[0].name
   namespace           = data.oci_objectstorage_namespace.this.namespace
   prefix              = var.resource_prefix
+
+  # Resolve SSH public key: inline string > file path > empty
+  resolved_ssh_public_key = (
+    var.scheduler_ssh_public_key != "" ? var.scheduler_ssh_public_key :
+    var.ssh_public_key_file != "" ? trimspace(file(var.ssh_public_key_file)) :
+    ""
+  )
 }

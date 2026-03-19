@@ -24,8 +24,8 @@ resource "oci_objectstorage_bucket" "this" {
 # ---------------------------------------------------------------------------
 
 resource "oci_objectstorage_object_lifecycle_policy" "cleanup" {
-  namespace  = local.namespace
-  bucket     = oci_objectstorage_bucket.this.name
+  namespace = local.namespace
+  bucket    = oci_objectstorage_bucket.this.name
 
   rules {
     name        = "cleanup-old-tasks"

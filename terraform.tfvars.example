@@ -3,61 +3,85 @@
 #
 # Copy this file to terraform.tfvars and fill in your OCI details:
 #   cp terraform.tfvars.example terraform.tfvars
+#
+# MINIMAL SETUP: Only tenancy_ocid, compartment_ocid, and region are
+# required when using ~/.oci/config for authentication.
 # ==========================================================================
 
 # --- OCI Provider Authentication -------------------------------------------
-# These come from your ~/.oci/config or an API key created in the OCI Console.
-tenancy_ocid     = "ocid1.tenancy.oc1..aaaaaaaaexample"
-user_ocid        = "ocid1.user.oc1..aaaaaaaaexample"
-fingerprint      = "aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99"
-private_key_path = "~/.oci/oci_api_key.pem"
+#
+# Option A (recommended): Use your existing ~/.oci/config
+#   Just set tenancy_ocid, compartment_ocid, and region below.
+#   Leave user_ocid, fingerprint, and private_key_path empty.
+#
+# Option B: Explicit credentials
+#   user_ocid        = "ocid1.user.oc1..aaaaaaaaexample"
+#   fingerprint      = "aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99"
+#   private_key_path = "~/.oci/oci_api_key.pem"
+#
+# Option C: 1Password CLI
+#   user_ocid        = "ocid1.user.oc1..aaaaaaaaexample"  # op item get "OCI API Key" --vault API --fields user_ocid
+#   fingerprint      = "aa:bb:cc:..."                      # op item get "OCI API Key" --vault API --fields fingerprint
+#   private_key_path = "~/.oci/oci_api_key.pem"            # op document get "OCI API Key PEM" --vault API > ~/.oci/oci_api_key.pem
+
+tenancy_ocid = "ocid1.tenancy.oc1..aaaaaaaaexample"
 
 # --- Region & Compartment -------------------------------------------------
 region           = "us-ashburn-1"
 compartment_ocid = "ocid1.compartment.oc1..aaaaaaaaexample"
 
+# --- SSH Keys --------------------------------------------------------------
+# The SSH key used for bastion and scheduler instances.
+#
+# Option A: Point to a key file (recommended)
+ssh_public_key_file  = "~/.ssh/id_ed25519.pub"
+ssh_private_key_path = "~/.ssh/id_ed25519"
+#
+# Option B: Inline public key string
+# scheduler_ssh_public_key = "ssh-ed25519 AAAA..."
+# ssh_private_key_path     = "~/.ssh/id_ed25519"
+
 # --- Naming ----------------------------------------------------------------
 resource_prefix = "scaler"
 
 # --- Networking ------------------------------------------------------------
-vcn_cidr              = "10.0.0.0/16"
-subnet_cidr           = "10.0.1.0/24"
-availability_domain   = ""           # leave empty to auto-select first AD
-use_public_subnet     = false        # recommended: private subnet + NAT
-create_nat_gateway    = true
+# vcn_cidr            = "10.0.0.0/16"
+# subnet_cidr         = "10.0.1.0/24"
+# availability_domain = ""           # leave empty to auto-select first AD
+# use_public_subnet   = false        # recommended: private subnet + NAT
+# create_nat_gateway  = true
 
 # --- Scheduler connectivity -----------------------------------------------
-scheduler_port = 2345
-scheduler_cidr = "0.0.0.0/0"        # tighten this to your scheduler's CIDR
+# scheduler_port = 2345
+# scheduler_cidr = "0.0.0.0/0"      # tighten to your scheduler's CIDR
 
 # --- Container Instance sizing ---------------------------------------------
-instance_shape     = "CI.Standard.E4.Flex"
-instance_ocpus     = 4.0
-instance_memory_gb = 30.0
+# instance_shape     = "CI.Standard.E4.Flex"
+# instance_ocpus     = 4.0
+# instance_memory_gb = 30.0
 
 # --- Object Storage --------------------------------------------------------
-object_storage_prefix = "scaler-tasks"
-bucket_lifecycle_days = 1
+# object_storage_prefix = "scaler-tasks"
+# bucket_lifecycle_days = 1
 
 # --- Container Registry (OCIR) --------------------------------------------
-create_ocir_repository    = true
-ocir_repository_is_public = false
+# create_ocir_repository    = true
+# ocir_repository_is_public = false
 
 # --- Scheduler Compute Instance (optional) --------------------------------
-# Set to true to provision a VM that runs scaler_scheduler automatically.
-create_scheduler_instance        = false
-scheduler_instance_shape         = "VM.Standard.E4.Flex"
-scheduler_instance_ocpus         = 1.0
-scheduler_instance_memory_gb     = 8.0
-scheduler_ssh_public_key         = ""   # paste your ~/.ssh/id_rsa.pub here
-scheduler_workers_per_instance   = 4
-scaler_pip_package               = "scaler"  # or "git+https://github.com/..."
+# Set to true to provision a VM that runs scaler_scheduler.
+# create_scheduler_instance      = false
+# scheduler_instance_shape       = "VM.Standard.E4.Flex"
+# scheduler_instance_ocpus       = 1.0
+# scheduler_instance_memory_gb   = 8.0
+# scheduler_workers_per_instance = 4
+# scaler_pip_package             = "opengris-scaler"
 
 # --- Bastion Host (optional) -----------------------------------------------
 # Public-facing jump host for SSH access to private resources.
-create_bastion        = false
-bastion_shape         = "VM.Standard.E4.Flex"
-bastion_ocpus         = 1.0
-bastion_memory_gb     = 4.0
-bastion_subnet_cidr   = "10.0.2.0/24"
-bastion_ssh_cidr      = "0.0.0.0/0"    # tighten to your IP/32 for security
+# create_bastion      = false
+# bastion_shape       = "VM.Standard.E4.Flex"
+# bastion_ocpus       = 1.0
+# bastion_memory_gb   = 4.0
+# bastion_subnet_cidr = "10.0.2.0/24"
+# bastion_ssh_cidr    = "0.0.0.0/0"  # tighten to your IP/32 for security

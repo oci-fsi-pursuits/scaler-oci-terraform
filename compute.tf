@@ -85,8 +85,15 @@ resource "oci_core_instance" "scheduler" {
   }
 
   metadata = {
-    ssh_authorized_keys = var.scheduler_ssh_public_key
+    ssh_authorized_keys = local.resolved_ssh_public_key
     user_data           = data.cloudinit_config.scheduler[0].rendered
+  }
+
+  lifecycle {
+    precondition {
+      condition     = local.resolved_ssh_public_key != ""
+      error_message = "An SSH public key is required. Set scheduler_ssh_public_key or ssh_public_key_file."
+    }
   }
 
   freeform_tags = {

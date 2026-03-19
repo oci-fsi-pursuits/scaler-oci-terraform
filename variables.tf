@@ -9,21 +9,34 @@
 variable "tenancy_ocid" {
   description = "OCID of the OCI tenancy."
   type        = string
+
+  validation {
+    condition     = can(regex("^ocid1\\.tenancy\\.", var.tenancy_ocid))
+    error_message = "tenancy_ocid must start with 'ocid1.tenancy.'"
+  }
 }
 
 variable "user_ocid" {
-  description = "OCID of the OCI user for API key authentication."
+  description = "OCID of the OCI user for API key auth. Leave empty to use ~/.oci/config or instance principal."
   type        = string
+  default     = ""
+
+  validation {
+    condition     = var.user_ocid == "" || can(regex("^ocid1\\.user\\.", var.user_ocid))
+    error_message = "user_ocid must start with 'ocid1.user.' or be empty."
+  }
 }
 
 variable "fingerprint" {
-  description = "Fingerprint of the API signing key."
+  description = "Fingerprint of the API signing key. Leave empty to use ~/.oci/config."
   type        = string
+  default     = ""
 }
 
 variable "private_key_path" {
-  description = "Path to the PEM private key used for OCI API authentication."
+  description = "Path to the PEM private key for OCI API auth. Leave empty to use ~/.oci/config."
   type        = string
+  default     = ""
 }
 
 variable "region" {
@@ -35,6 +48,11 @@ variable "region" {
 variable "compartment_ocid" {
   description = "OCID of the compartment where all resources will be created."
   type        = string
+
+  validation {
+    condition     = can(regex("^ocid1\\.compartment\\.", var.compartment_ocid))
+    error_message = "compartment_ocid must start with 'ocid1.compartment.'"
+  }
 }
 
 # ---------------------------------------------------------------------------
@@ -180,9 +198,26 @@ variable "scheduler_instance_memory_gb" {
 }
 
 variable "scheduler_ssh_public_key" {
-  description = "SSH public key for the scheduler instance. Required if create_scheduler_instance is true."
+  description = "SSH public key string (e.g. 'ssh-ed25519 AAAA...'). Alternative: use ssh_public_key_file."
   type        = string
   default     = ""
+
+  validation {
+    condition     = var.scheduler_ssh_public_key == "" || can(regex("^ssh-", var.scheduler_ssh_public_key))
+    error_message = "scheduler_ssh_public_key must start with 'ssh-' (e.g. ssh-ed25519 AAAA...)."
+  }
+}
+
+variable "ssh_public_key_file" {
+  description = "Path to SSH public key file. Used when scheduler_ssh_public_key is empty."
+  type        = string
+  default     = ""
+}
+
+variable "ssh_private_key_path" {
+  description = "Path to SSH private key. Used in output helper commands for SSH/SCP."
+  type        = string
+  default     = "~/.ssh/id_ed25519"
 }
 
 variable "scheduler_workers_per_instance" {
@@ -238,7 +273,12 @@ variable "bastion_ssh_cidr" {
 }
 
 variable "bastion_ssh_public_key" {
-  description = "SSH public key for the bastion. If empty, uses scheduler_ssh_public_key."
+  description = "SSH public key for the bastion. If empty, uses the resolved scheduler SSH key."
   type        = string
   default     = ""
+
+  validation {
+    condition     = var.bastion_ssh_public_key == "" || can(regex("^ssh-", var.bastion_ssh_public_key))
+    error_message = "bastion_ssh_public_key must start with 'ssh-' or be empty."
+  }
 }
