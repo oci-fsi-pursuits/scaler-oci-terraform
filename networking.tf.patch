@@ -1,0 +1,40 @@
+# Patch: networking.tf
+# Change: SSH ingress source changed from 0.0.0.0/0 to var.vcn_cidr
+#
+# Find this block in networking.tf (inside the scheduler or bastion security list):
+#
+# BEFORE:
+#   ingress_security_rules {
+#     protocol = "6"
+#     source   = "0.0.0.0/0"
+#     tcp_options {
+#       min = 22
+#       max = 22
+#     }
+#     description = "SSH access"
+#   }
+#
+# AFTER:
+#   ingress_security_rules {
+#     protocol = "6"
+#     # Restrict SSH to VCN-internal traffic only.
+#     # To allow SSH from your workstation, set ssh_source_cidr in terraform.tfvars,
+#     # e.g.:  ssh_source_cidr = "203.0.113.42/32"
+#     source   = var.ssh_source_cidr
+#     tcp_options {
+#       min = 22
+#       max = 22
+#     }
+#     description = "SSH access (restrict to known CIDRs in production)"
+#   }
+#
+# Also add this variable to variables.tf:
+#
+#   variable "ssh_source_cidr" {
+#     description = "CIDR block allowed to SSH to the scheduler/bastion. Defaults to VCN-internal only. Override with your public IP for remote access, e.g. '203.0.113.42/32'."
+#     type        = string
+#     default     = "10.0.0.0/16"  # matches var.vcn_cidr default — change if you changed vcn_cidr
+#   }
+#
+# And update terraform.tfvars.example to include:
+#   # ssh_source_cidr = "203.0.113.42/32"  # Uncomment and set to your IP for remote SSH

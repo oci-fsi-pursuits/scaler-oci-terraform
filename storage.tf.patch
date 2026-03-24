@@ -1,0 +1,34 @@
+# Patch: storage.tf
+# Change: bucket_lifecycle_days default increased from 1 to 7
+#
+# Find this variable declaration in variables.tf:
+#
+# BEFORE:
+#   variable "bucket_lifecycle_days" {
+#     description = "Number of days after which objects in the task bucket are automatically deleted."
+#     type        = number
+#     default     = 1
+#   }
+#
+# AFTER:
+#   variable "bucket_lifecycle_days" {
+#     description = <<-EOT
+#       Number of days after which task objects in the Object Storage bucket are
+#       automatically deleted. Must be greater than your longest expected task runtime.
+#       The OCI HPC adapter's job_timeout_seconds defaults to 3600 (1 hour), so the
+#       default of 7 days provides a safe margin. Reduce this to save storage costs
+#       once you confirm your tasks complete well within the window.
+#     EOT
+#     type        = number
+#     default     = 7
+#
+#     validation {
+#       condition     = var.bucket_lifecycle_days >= 2
+#       error_message = "bucket_lifecycle_days must be at least 2 to avoid race conditions with running tasks."
+#     }
+#   }
+#
+# Rationale: With default=1, a task submitted late in the day could have its result
+# object deleted before the adapter polls for it, causing a silent 404 failure.
+# 7 days is safe for all reasonable job_timeout_seconds values and costs pennies
+# in Object Storage at typical task payload sizes.

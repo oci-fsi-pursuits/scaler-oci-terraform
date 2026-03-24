@@ -1,307 +1,244 @@
 # Scaler OCI Terraform
 
-Terraform configuration to provision all OCI infrastructure required by the
-OpenGRIS Scaler OCI worker manager adapters (`oci_raw` and `oci_hpc`).
+This Terraform configuration provisions the complete OCI infrastructure for the OpenGRIS Scaler OCI worker manager adapters (`oci_raw` and `oci_hpc`). It automates deployment of networking, storage, container registries, IAM, and optional scheduler/bastion resources.
 
-## What Gets Created
+> **Deploying the Scaler adapter?** After running `make apply`, jump to [Exporting Config for the Scaler Adapter](#exporting-config-for-the-scaler-adapter) to get a ready-to-use config file.
+>
+> This repo is also fully usable standalone — it provisions general-purpose OCI networking, Object Storage, OCIR, and IAM that any OCI Container Instance workload can use.
 
-| Resource | Description |
-|----------|-------------|
-| VCN + Subnet | Private networking for container instances and scheduler |
-| NAT / Internet Gateway | Egress for private or public subnet modes |
-| Service Gateway | Direct path to OCI Object Storage and OCIR |
-| Object Storage Bucket | Task payload and result storage (auto-expires after 1 day) |
-| OCIR Repository | Container registry for worker images |
-| Dynamic Group | Matches all container instances in the compartment |
-| IAM Policies | Object Storage read/write + logging for container instances |
-| Log Group + Custom Log | Container instance log aggregation |
-| Scheduler Instance | *(optional)* Compute VM running `scaler_scheduler` |
-| Bastion Host | *(optional)* Public jump host for SSH access to private resources |
+---
 
 ## Prerequisites
 
-```bash
-terraform version      # >= 1.5 required
-oci iam region list    # verify OCI CLI works (optional, for credential setup)
-docker info            # verify Docker is running (for building worker images)
-```
+- Terraform ≥ 1.5
+- An OCI tenancy with a dedicated compartment
+- An SSH key pair for scheduler/bastion access
+- Docker (for building container images)
+- The `opengris-scaler-oci` source repository (only needed for `make build` and `make deploy`)
 
-- [Terraform](https://developer.hashicorp.com/terraform/install) >= 1.5
-- An OCI tenancy with a compartment for Scaler resources
-- An SSH key pair for bastion/scheduler access
-- [Docker](https://docs.docker.com/get-docker/) (for building worker images)
-- The [opengris-scaler-oci](https://github.com/oci-fsi-pursuits/opengris-scaler-oci) source tree
+---
+
+## Infrastructure Created
+
+| Component | Purpose |
+|-----------|---------|
+| VCN & Subnet | Private networking for Container Instances |
+| NAT / Internet / Service Gateways | Egress to OCI services (Object Storage, OCIR) without public IPs |
+| Object Storage Bucket | Task payloads and results (7-day auto-expiry by default) |
+| OCIR Repository | Container registry for worker images |
+| Dynamic Group + IAM Policies | Least-privilege access for Container Instances |
+| Log Group | Centralized instance logging |
+| Scheduler VM *(optional)* | Compute instance running `scaler-scheduler` and `scaler-worker-manager` as systemd services |
+| Bastion Host *(optional)* | Public jump server for SSH access to the scheduler |
+
+---
 
 ## Quick Start
 
-### 1. Configure Variables
+### Step 1 — Configure
+
+Copy and edit the example variables file:
 
 ```bash
 cp terraform.tfvars.example terraform.tfvars
-# Edit terraform.tfvars with your OCI details
 ```
 
-**Minimal configuration** (when using `~/.oci/config`):
+**Minimum required values:**
 
 ```hcl
-tenancy_ocid     = "ocid1.tenancy.oc1..aaaa..."
-region           = "us-phoenix-1"
-compartment_ocid = "ocid1.compartment.oc1..aaaa..."
+tenancy_ocid     = "ocid1.tenancy.oc1...<your-tenancy>"
+region           = "us-ashburn-1"
+compartment_ocid = "ocid1.compartment.oc1...<your-compartment>"
 
+# SSH key for scheduler/bastion access
 ssh_public_key_file  = "~/.ssh/id_ed25519.pub"
 ssh_private_key_path = "~/.ssh/id_ed25519"
 ```
 
-**With explicit credentials** (when not using `~/.oci/config`):
+**Authentication — choose one:**
 
 ```hcl
-tenancy_ocid     = "ocid1.tenancy.oc1..aaaa..."
-user_ocid        = "ocid1.user.oc1..aaaa..."
-fingerprint      = "aa:bb:cc:..."
-private_key_path = "~/.oci/oci_api_key.pem"
-region           = "us-phoenix-1"
-compartment_ocid = "ocid1.compartment.oc1..aaaa..."
+# Option A: use ~/.oci/config (simplest for local dev — leave these commented out)
+# user_ocid        = ""
+# fingerprint      = ""
+# private_key_path = ""
 
-ssh_public_key_file  = "~/.ssh/id_ed25519.pub"
-ssh_private_key_path = "~/.ssh/id_ed25519"
+# Option B: explicit credentials
+# user_ocid        = "ocid1.user.oc1...<your-user>"
+# fingerprint      = "aa:bb:cc:..."
+# private_key_path = "~/.oci/oci_api_key.pem"
 ```
 
-See `terraform.tfvars.example` for all available options.
+**Optional: restrict SSH access to your IP** (recommended before making repos public):
 
-### 2. Initialize and Apply
-
-```bash
-make init    # or: terraform init
-make plan    # or: terraform plan
-make apply   # or: terraform apply
+```hcl
+# ssh_source_cidr = "203.0.113.42/32"  # your public IP
+# Default is VCN-internal only (10.0.0.0/16)
 ```
 
-### 3. Build and Push the Worker Container Image
+### Step 2 — Provision Infrastructure
 
 ```bash
-# Log in to OCIR (interactive — prompts for username and password)
-make login
-# Username: your OCI username (e.g. oraclecloud/user@example.com)
-# Password: an OCI auth token (generate at: OCI Console > Identity > Users > Auth Tokens)
+make init     # Initialize Terraform providers
+make plan     # Preview what will be created
+make apply    # Deploy all resources (~2-3 minutes)
+```
 
-# Build and push the worker image (defaults to HPC adapter)
-make build SCALER_SRC=../opengris-scaler-oci
+### Step 3 — Build Worker Images
 
-# Or build both HPC and Raw adapter images
+Authenticate with OCIR, then build and push the container images:
+
+```bash
+make login                              # Docker login to OCIR (prompts for auth token)
+make build SCALER_SRC=../opengris-scaler-oci ADAPTER=hpc   # OCI HPC image
+make build SCALER_SRC=../opengris-scaler-oci ADAPTER=raw   # OCI Raw image
+# Or build both at once:
 make build SCALER_SRC=../opengris-scaler-oci ADAPTER=both
 ```
 
-The build script uses Dockerfiles from the scaler source tree to create
-lightweight worker images (Python 3.12-slim + OCI SDK) and pushes them to the
-OCIR repository Terraform created. At runtime, the worker manager on the
-scheduler creates OCI Container Instances that pull these images.
+### Step 4 — Deploy Scheduler (Optional)
 
-### 4. Deploy the Scheduler (Optional)
-
-Enable the scheduler and bastion in `terraform.tfvars`:
+To run the scheduler on an OCI VM with systemd services pre-configured, enable these in `terraform.tfvars`:
 
 ```hcl
 create_scheduler_instance = true
-create_bastion            = true
+create_bastion            = true   # recommended for SSH access
 ```
 
-Then apply and deploy:
+Then:
 
 ```bash
 make apply
-# Wait ~2 minutes for cloud-init, then:
 make deploy SCALER_SRC=../opengris-scaler-oci
-
-# Or directly:
-$(terraform output -raw deploy_scheduler_command | sed 's|<path-to-scaler>|../opengris-scaler-oci|')
 ```
 
-### 5. Verify the Scheduler
+> **First-boot note:** The scheduler VM compiles C++ dependencies (Cap'n Proto, ZeroMQ, libuv) from source on first boot. This takes **15–25 minutes**. Monitor progress with:
+> ```bash
+> make ssh
+> sudo tail -f /var/log/scaler-init.log
+> ```
+> Wait until you see `scaler install complete — starting services` before running `systemctl status`.
+
+### Step 5 — Verify
 
 ```bash
-# SSH to the scheduler (reads connection info from Terraform outputs)
 make ssh
-
-# On the scheduler instance:
-sudo journalctl -u scaler-scheduler -f    # view logs
-sudo systemctl status scaler-scheduler    # check status
-sudo ss -tlnp | grep 2345                # verify port is listening
+sudo systemctl status scaler-scheduler
+sudo systemctl status scaler-worker-manager
+sudo ss -tlnp | grep 2345   # scheduler should be listening
 ```
 
-## SSH Key Configuration
+---
 
-SSH keys can be configured in three ways:
+## Exporting Config for the Scaler Adapter
 
-| Method | Variables to Set |
-|--------|-----------------|
-| **Key file** (recommended) | `ssh_public_key_file = "~/.ssh/id_ed25519.pub"` |
-| **Inline string** | `scheduler_ssh_public_key = "ssh-ed25519 AAAA..."` |
-| **Separate bastion key** | `bastion_ssh_public_key = "ssh-ed25519 BBBB..."` |
-
-Always set `ssh_private_key_path` so output commands and helper scripts use
-the correct key:
-
-```hcl
-ssh_private_key_path = "~/.ssh/id_ed25519"
-```
-
-## OCI Authentication
-
-The Terraform provider supports three authentication methods:
-
-| Method | When to Use |
-|--------|-------------|
-| **~/.oci/config** (default) | Leave `user_ocid`, `fingerprint`, `private_key_path` empty |
-| **Explicit credentials** | Set all three in `terraform.tfvars` |
-| **1Password CLI** | Extract with `op item get "OCI API Key" --vault API --fields user_ocid` |
-
-## Running the Test Harness
-
-The test harness validates the OCI infrastructure in four phases.
-
-### Phase 1 — OCI Connectivity
+Once `make apply` completes, export the configuration in the format the Scaler adapter expects:
 
 ```bash
+terraform output -json scaler_config > .scaler_oci_config.json
+```
+
+This single file contains all the parameters (`compartment_id`, `subnet_id`, `availability_domain`, `object_storage_namespace`, `object_storage_bucket`, `container_image`, etc.) needed by the OpenGRIS Scaler OCI adapter. Copy it to the `opengris-scaler-oci` directory and follow from **Step 2** of the [OCI integration guide](https://github.com/oci-fsi-pursuits/opengris-scaler-oci/blob/main/ReadMeOCI.Md):
+
+```bash
+cp .scaler_oci_config.json ../opengris-scaler-oci/
+cd ../opengris-scaler-oci
+# Continue with Step 2 — build-and-push
+```
+
+---
+
+## Testing Infrastructure
+
+The test harness in `opengris-scaler-oci` validates all four phases using Terraform outputs directly:
+
+```bash
+# Phase 1+2 — Connectivity and Object Storage
 python tests/worker_manager_adapter/oci_hpc/oci_hpc_test_harness.py \
   --compartment-id "$(terraform output -raw compartment_id)" \
   --phase connectivity
-```
 
-### Phase 2 — Object Storage
-
-```bash
-python tests/worker_manager_adapter/oci_hpc/oci_hpc_test_harness.py \
-  --compartment-id "$(terraform output -raw compartment_id)" \
-  --phase storage
-```
-
-### Phase 3 — Container Instance Lifecycle
-
-```bash
+# Phase 3 — Container Instance lifecycle
 python tests/worker_manager_adapter/oci_hpc/oci_hpc_test_harness.py \
   --compartment-id "$(terraform output -raw compartment_id)" \
   --subnet-id "$(terraform output -raw subnet_id)" \
   --availability-domain "$(terraform output -raw availability_domain)" \
-  --container-image docker.io/library/alpine:latest \
+  --container-image "$(terraform output -raw ocir_image_uri)-hpc" \
   --phase lifecycle
+
+# Phase 4 — Scheduler integration (run from scheduler VM)
+# ssh in first: make ssh
+# then: python tests/.../oci_hpc_test_harness.py --phase tasks --scheduler-address tcp://127.0.0.1:2345
 ```
 
-### Phase 4 — Scheduler Task Tests
+---
 
-From the scheduler instance (recommended):
+## SSH Access
 
 ```bash
-make ssh
-
-# On the scheduler:
-source /opt/scaler/venv/bin/activate
-cd /opt/scaler/src
-python tests/worker_manager_adapter/oci_hpc/oci_hpc_test_harness.py \
-  --compartment-id "<compartment_ocid>" \
-  --scheduler tcp://127.0.0.1:2345 \
-  --phase scheduler
+make ssh                                   # SSH to scheduler via bastion
+terraform output bastion_ssh_command       # Get the raw SSH command string
 ```
 
-### Running All Phases
+---
+
+## Useful Commands
 
 ```bash
-terraform output -json scaler_config > /tmp/scaler_config.json
-
-python tests/worker_manager_adapter/oci_hpc/oci_hpc_test_harness.py \
-  --config /tmp/scaler_config.json \
-  --scheduler tcp://127.0.0.1:2345
+make help                              # All available targets
+make validate                          # Check Terraform syntax
+make fmt                               # Auto-format .tf files
+terraform output scaler_config         # View full config JSON
+terraform output -json scaler_config   # Machine-readable JSON (pipe to file)
 ```
 
-## Architecture
+---
 
-```
-                     ┌─────────────────────────────────┐
-                     │           Your Machine           │
-                     │  (test harness / scaler client)  │
-                     └──────────┬──────────────────────┘
-                                │ SSH tunnel / direct
-                     ┌──────────▼──────────────────────┐
-                     │     Bastion Host (public IP)     │
-                     │        10.0.2.0/24 subnet        │
-                     └──────────┬──────────────────────┘
-                                │
-              ┌─────────────────▼─────────────────────────────┐
-              │              Private Subnet (10.0.1.0/24)      │
-              │                                                │
-              │  ┌──────────────────┐  ┌────────────────────┐  │
-              │  │    Scheduler     │  │  Container Instance │  │
-              │  │  (compute VM)   │◄─│  (per-task worker)  │  │
-              │  │  :2345          │  │  oci_hpc adapter    │  │
-              │  └──────────────────┘  └────────┬───────────┘  │
-              │                                 │              │
-              └─────────────────────────────────┼──────────────┘
-                                                │
-                                    ┌───────────▼───────────┐
-                                    │    Object Storage     │
-                                    │  (task payloads and   │
-                                    │   results)            │
-                                    └───────────────────────┘
+## Object Storage Lifecycle
+
+The task bucket defaults to **7-day object expiry**. This is intentionally longer than the default `job_timeout_seconds` (1 hour) to ensure results are always available when the adapter polls for them. You can reduce this after confirming your tasks complete well within the window:
+
+```hcl
+bucket_lifecycle_days = 2   # safe minimum if tasks always finish within 1 day
 ```
 
-## Make Targets
+Setting this below 2 days is blocked by a Terraform validation rule.
 
-```bash
-make help       # Show all targets
-make init       # terraform init
-make plan       # terraform plan
-make apply      # terraform apply
-make destroy    # terraform destroy
-make login      # Log in to OCIR (prompts for username and auth token)
-make build      # Build and push worker images (SCALER_SRC=<path> ADAPTER=hpc|raw|both)
-make deploy     # Deploy scaler source to scheduler (SCALER_SRC=<path>)
-make ssh        # SSH to scheduler via bastion
-make validate   # Validate Terraform config
-make fmt        # Format Terraform files
-```
+---
 
-## Useful Terraform Outputs
+## Security Notes
 
-```bash
-terraform output bastion_public_ip           # Bastion SSH target
-terraform output bastion_ssh_command          # Ready-to-run SSH command
-terraform output bastion_ssh_to_scheduler     # SSH to scheduler via bastion
-terraform output bastion_tunnel_to_scheduler  # Port-forward scheduler
-terraform output deploy_scheduler_command     # Deploy local source
-terraform output build_and_push_command       # Build worker image
-terraform output ocir_docker_login_command    # OCIR login template
-terraform output scheduler_address            # tcp://<private_ip>:2345
-terraform output -json scaler_config          # Full config JSON
-```
+- **SSH access** defaults to VCN-internal only (`10.0.0.0/16`). Set `ssh_source_cidr` to your public IP for remote access.
+- **Dynamic Group policy** grants Container Instances read access to input objects and write access to result objects in the task bucket. It does not grant access to other compartment resources.
+- **IAM policy** for the scheduler VM grants `manage compute-container-family` scoped to the provisioned compartment.
+- OCIR repositories default to private (`ocir_repository_is_public = false`).
+
+---
 
 ## Cleanup
 
+Remove all provisioned resources:
+
 ```bash
-make destroy   # or: terraform destroy
+make destroy
 ```
 
-This removes all OCI resources. The bastion and scheduler instances will be
-terminated, networking torn down, and the Object Storage bucket deleted.
+This terminates compute instances, removes networking, and deletes the Object Storage bucket and all its contents.
 
-## File Structure
+---
 
-```
-scaler-oci-terraform/
-├── main.tf                 # Providers, data sources, locals
-├── variables.tf            # All input variables with validation
-├── outputs.tf              # All outputs (IPs, config JSON, helper commands)
-├── networking.tf           # VCN, gateways, route tables, security lists, subnet
-├── storage.tf              # Object Storage bucket with lifecycle
-├── registry.tf             # OCIR repository with region key mapping
-├── iam.tf                  # Dynamic Group + IAM Policies (home region)
-├── logging.tf              # Log Group + Custom Log
-├── compute.tf              # Scheduler compute instance (optional)
-├── bastion.tf              # Bastion host (optional)
-├── Makefile                # Make targets for common operations
-├── terraform.tfvars        # Your variable values (gitignored)
-├── terraform.tfvars.example # Annotated example with all options
-└── scripts/
-    ├── build-and-push.sh           # Build + push worker images to OCIR
-    ├── deploy-scheduler.sh         # Deploy local scaler source to scheduler
-    ├── ssh-to-scheduler.sh         # SSH convenience wrapper (reads TF outputs)
-    └── cloud-init-scheduler.yaml   # Cloud-init template for scheduler VM
-```
+## File Organisation
+
+| File | Purpose |
+|------|---------|
+| `main.tf` | Provider configuration |
+| `variables.tf` | Input variable definitions and validation |
+| `outputs.tf` | Output values including `scaler_config` JSON |
+| `networking.tf` | VCN, subnets, gateways, security lists |
+| `storage.tf` | Object Storage bucket and lifecycle policy |
+| `registry.tf` | OCIR repository |
+| `iam.tf` | Dynamic Group and IAM policies |
+| `compute.tf` | Optional scheduler instance with cloud-init |
+| `bastion.tf` | Optional public jump host |
+| `scripts/` | Build, deploy, SSH, and cloud-init helper scripts |
+| `terraform.tfvars.example` | Annotated example configuration |

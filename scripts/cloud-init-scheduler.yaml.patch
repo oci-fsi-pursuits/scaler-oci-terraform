@@ -1,0 +1,43 @@
+# Patch: scripts/cloud-init-scheduler.yaml
+# Change: start-worker-manager.sh now passes --oci-auth-type instance_principal,
+#         which is now supported in task_manager.py via the new _build_oci_signer() method.
+#
+# The existing cloud-init already uses --oci-auth-type instance_principal in the
+# scaler_worker_manager_oci_raw_container_instance command, which is correct.
+# This patch ensures the OCI HPC worker manager also uses it consistently.
+#
+# Find the write_files entry for /opt/scaler/start-worker-manager.sh.
+#
+# BEFORE (OCI HPC variant, if present, likely missing --oci-auth-type entirely):
+#   scaler_worker_manager_oci_hpc \
+#     --scheduler-address tcp://127.0.0.1:${scheduler_port} \
+#     --compartment-id ${compartment_id} \
+#     ...
+#
+# AFTER:
+#   scaler_worker_manager_oci_hpc \
+#     --scheduler-address tcp://127.0.0.1:${scheduler_port} \
+#     --oci-auth-type instance_principal \
+#     --compartment-id ${compartment_id} \
+#     --availability-domain ${availability_domain} \
+#     --subnet-id ${subnet_id} \
+#     --container-image ${container_image} \
+#     --oci-region ${oci_region} \
+#     --object-storage-namespace ${object_storage_namespace} \
+#     --object-storage-bucket ${object_storage_bucket}
+#
+# Also add a startup log line so users know how long the first boot takes:
+#
+# In the runcmd section, wrap the C++ build steps with timing logs:
+#
+#   - echo "$(date): Starting C++ dependency build (Cap'n Proto, ZeroMQ, libuv) — expect 15-25 minutes" | tee /var/log/scaler-init.log
+#   - <existing capnproto build commands>
+#   - <existing zeromq build commands>
+#   - <existing libuv build commands>
+#   - echo "$(date): C++ build complete" | tee -a /var/log/scaler-init.log
+#   - pip install opengris-scaler[oci] >> /var/log/scaler-init.log 2>&1
+#   - echo "$(date): scaler install complete — starting services" | tee -a /var/log/scaler-init.log
+#   - systemctl start scaler-scheduler scaler-worker-manager
+#
+# Users can then run: sudo tail -f /var/log/scaler-init.log
+# to watch first-boot progress instead of guessing why services aren't up yet.
