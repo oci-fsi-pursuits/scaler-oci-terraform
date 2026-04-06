@@ -46,9 +46,12 @@ write_files:
       source venv/bin/activate
 
       # Start the scheduler with vanilla scaling (auto-provisions workers via worker manager)
+      # Object storage server runs on scheduler_port + 1
       exec scaler_scheduler \
           tcp://0.0.0.0:${scheduler_port} \
           --policy-content "allocate=even_load; scaling=vanilla" \
+          --object-storage-address tcp://$(hostname -i):$((${scheduler_port} + 1)) \
+          --worker-timeout-seconds 600 \
           --logging-level INFO
 
   - path: /opt/scaler/start-worker-manager.sh
@@ -66,8 +69,11 @@ write_files:
       source venv/bin/activate
 
       # Start the OCI Raw worker manager with instance principal auth
+      # Worker manager connects to scheduler via private IP (not localhost)
+      # so container instances in the same subnet can reach the same address.
+      PRIVATE_IP=$(hostname -i)
       exec scaler_worker_manager_oci_raw_container_instance \
-          tcp://127.0.0.1:${scheduler_port} \
+          "tcp://$${PRIVATE_IP}:${scheduler_port}" \
           --oci-auth-type instance_principal \
           --oci-region ${oci_region} \
           --compartment-id ${compartment_id} \
@@ -77,6 +83,7 @@ write_files:
           --instance-shape ${instance_shape} \
           --instance-ocpus ${instance_ocpus} \
           --instance-memory-gb ${instance_memory_gb} \
+          --scaler-package "${scaler_package}" \
           --logging-level INFO
 
   - path: /etc/systemd/system/scaler-scheduler.service
@@ -146,6 +153,11 @@ runcmd:
   # Set up scaler directory
   - mkdir -p /opt/scaler
   - chown opc:opc /opt/scaler
+  # Open firewall ports for scheduler (2345), object storage (2346), monitor (2347)
+  - firewall-cmd --add-port=${scheduler_port}/tcp --permanent
+  - firewall-cmd --add-port=$((${scheduler_port} + 1))/tcp --permanent
+  - firewall-cmd --add-port=$((${scheduler_port} + 2))/tcp --permanent
+  - firewall-cmd --reload
   # Enable services but don't start — deploy-scheduler.sh will start them
   - systemctl daemon-reload
   - systemctl enable scaler-scheduler

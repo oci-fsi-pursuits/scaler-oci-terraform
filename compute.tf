@@ -126,6 +126,19 @@ resource "oci_core_security_list" "scheduler" {
     }
   }
 
+  # Workers inside Container Instances connect to the object storage server
+  # (scheduler_port + 1) to fetch/store serialized function objects
+  ingress_security_rules {
+    protocol    = "6" # TCP
+    source      = var.subnet_cidr
+    description = "Allow workers to reach object storage server"
+
+    tcp_options {
+      min = var.scheduler_port + 1
+      max = var.scheduler_port + 1
+    }
+  }
+
   # Allow SSH from anywhere (for management)
   ingress_security_rules {
     protocol    = "6" # TCP
