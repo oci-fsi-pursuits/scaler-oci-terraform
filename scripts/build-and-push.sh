@@ -82,6 +82,7 @@ build_hpc() {
 
     # Build from the src/ directory so COPY paths resolve correctly
     docker build \
+        --platform linux/amd64 \
         -f "$dockerfile" \
         -t "$image" \
         "$SCALER_SRC/src"
@@ -110,6 +111,7 @@ build_raw() {
 
     # Build from the src/ directory so COPY paths resolve correctly
     docker build \
+        --platform linux/amd64 \
         -f "$dockerfile" \
         -t "$image" \
         "$SCALER_SRC/src"
