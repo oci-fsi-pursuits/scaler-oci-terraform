@@ -31,6 +31,22 @@ packages:
   - make
 
 write_files:
+  - path: /opt/scaler/start-object-storage.sh
+    permissions: "0755"
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+
+      cd /opt/scaler
+
+      if [[ ! -d venv ]]; then
+          echo "ERROR: virtualenv not found. Run deploy-scheduler.sh first." >&2
+          exit 1
+      fi
+      source venv/bin/activate
+
+      exec scaler_object_storage_server tcp://0.0.0.0:$((${scheduler_port} + 1)) --logging-level INFO
+
   - path: /opt/scaler/start-scheduler.sh
     permissions: "0755"
     content: |
@@ -45,12 +61,12 @@ write_files:
       fi
       source venv/bin/activate
 
-      # Start the scheduler with vanilla scaling (auto-provisions workers via worker manager)
       # Object storage server runs on scheduler_port + 1
       exec scaler_scheduler \
           tcp://0.0.0.0:${scheduler_port} \
           --policy-content "allocate=even_load; scaling=vanilla" \
-          --object-storage-address tcp://$(hostname -i):$((${scheduler_port} + 1)) \
+          --object-storage-address tcp://127.0.0.1:$((${scheduler_port} + 1)) \
+          --advertised-object-storage-address tcp://$(hostname -i):$((${scheduler_port} + 1)) \
           --worker-timeout-seconds 600 \
           --logging-level INFO
 
@@ -86,13 +102,35 @@ write_files:
           --scaler-package "${scaler_package}" \
           --logging-level INFO
 
+  - path: /etc/systemd/system/scaler-object-storage.service
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Scaler Object Storage Server
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=simple
+      User=opc
+      WorkingDirectory=/opt/scaler
+      ExecStart=/opt/scaler/start-object-storage.sh
+      Restart=on-failure
+      RestartSec=10
+      StandardOutput=journal
+      StandardError=journal
+
+      [Install]
+      WantedBy=multi-user.target
+
   - path: /etc/systemd/system/scaler-scheduler.service
     permissions: "0644"
     content: |
       [Unit]
       Description=Scaler Scheduler
-      After=network-online.target
+      After=network-online.target scaler-object-storage.service
       Wants=network-online.target
+      Requires=scaler-object-storage.service
 
       [Service]
       Type=simple
@@ -160,5 +198,6 @@ runcmd:
   - firewall-cmd --reload
   # Enable services but don't start — deploy-scheduler.sh will start them
   - systemctl daemon-reload
+  - systemctl enable scaler-object-storage
   - systemctl enable scaler-scheduler
   - systemctl enable scaler-worker-manager
